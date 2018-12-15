@@ -1,0 +1,106 @@
+% simulation of single rigid body dynamics, modified from top_simulation.m
+% Programmed by: Zhibin LI 
+% Department of Advanced Robotics
+% Italian Institute of Technology
+clear all
+close all
+clc;
+
+global uLINK G us uc FT ground;
+FT=[0 0 0]';
+us=0.8;
+uc=3/4*us;
+G = 9.8;
+
+id=1;
+wdh=[0.06, 0.4, 0.8 ]; % x y z
+% wdh=[0.8, 0.8, 0.01 ]; % x y z
+mass=30;
+MakeRigidBody(id, wdh, mass);
+%% Initial conditions
+uLINK(1).joint(1).r0=0.8; % rest leg length
+uLINK(1).joint(1).r=0.8; %leg length
+uLINK(1).joint(1).dr=0; %leg change rate
+uLINK(1).joint(1).R=Rodrigues([0 1 0],deg2rad(-45)); % leg orientation in body frame
+uLINK(1).joint(1).leg=uLINK(1).joint(1).R*[0 0 -uLINK(1).joint(1).r]'; % leg vector from joint to contact point in body frame
+uLINK(1).joint(1).dleg=uLINK(1).joint(1).R*[0 0 -uLINK(1).joint(1).dr]'; % % leg velocity vector in body frame
+
+uLINK(1).R = Rodrigues([0 1 0],deg2rad(12));   % orientation of rigid body
+uLINK(1).joint(1).foot.p = [0 0 -0.002]';    % position of contact point of foot/leg in world [m]
+uLINK(1).pcom=uLINK(1).joint(1).foot.p-uLINK(1).R*(uLINK(1).joint(1).offset+uLINK(1).joint(1).leg);  % position of COM in world [m]
+uLINK(1).vcom = [1.3 0 0.2]';    % velocity of COM in world [m/s]
+uLINK(1).w_body = [0 0 0]';  % initial angular velocity of the rigid body in body local frame, used only for initilization
+uLINK(1).w = uLINK(1).R*uLINK(1).w_body;  % initial angular velocity of the rigid body in world frame [rad/s]
+
+uLINK(1).joint(1).p=uLINK(1).pcom+uLINK(1).R*uLINK(1).joint(1).offset; % position vector of joint in world
+uLINK(1).joint(1).v=uLINK(1).vcom+cross( uLINK(1).w,uLINK(1).R*uLINK(1).joint(1).offset ); % velocity vector of joint in world
+uLINK(1).joint(1).w=[0 0 0]'; % joint angular position in body frame
+% uLINK(1).joint(1).dleg=[0 0 0]';    % leg velocity vector in body frame
+
+% ground.p=[0 0 0]';
+% ground.v=[0 0 0]';
+global fg
+fg=uLINK(1).m*G;
+global leg_ref leg_ref_old leg_out
+leg_ref = uLINK(1).joint(1).r;
+leg_ref_old= uLINK(1).joint(1).r;
+leg_out=uLINK(1).joint(1).r;
+%% simulation 
+Dtime = 0.0002; % to get more accurate data, reduce Dtime to 0.1 to 0.5 ms
+EndTime =2.3;
+EndTime=floor(EndTime/Dtime)*Dtime;
+time=0:Dtime:EndTime;
+animation_skip = 0.01;  % approx 25 frames (0.04) per second is also okay
+logdata_skip=0.005;  % log data every 5 ms
+% logdata_skip=Dtime;  % log data every 5 ms
+if logdata_skip<Dtime
+    logdata_skip=Dtime;
+end
+figure(1)
+set(gcf,'Position',[40,40,1200,600]);%[left bottom width height]
+AX=[-0.8 2.0];  AY=[-.5 .5]; AZ=[-.3 1.8];  % 3D plot dimension
+
+%% store simulated data
+store_time=[];
+store_grf=[];
+store_p=[];
+store_v=[];
+store_pcom=[];
+store_vcom=[];
+store_leg=[];
+store_dleg=[];
+% store_w=[];
+
+for n = 1:length(time)    
+    uLINK(1).joint(1).p=uLINK(1).pcom+uLINK(1).R*uLINK(1).joint(1).offset; % joint position vector in world
+    uLINK(1).joint(1).v=uLINK(1).vcom+cross( uLINK(1).w,uLINK(1).R*uLINK(1).joint(1).offset ); % velocity vector of joint in world
+%     uLINK(1).joint(1).foot.pold = uLINK(1).joint(1).foot.p;
+    uLINK(1).joint(1).R = Rodrigues(uLINK(1).joint(1).w,Dtime) * uLINK(1).joint(1).R ;
+    uLINK(1).joint(1).leg=uLINK(1).joint(1).R*[0 0 -uLINK(1).joint(1).r]';    
+    uLINK(1).joint(1).dleg = uLINK(1).joint(1).R*[0 0 -uLINK(1).joint(1).dr]';       
+    
+    uLINK(1).joint(1).foot.p = uLINK(1).joint(1).p+uLINK(1).R*uLINK(1).joint(1).leg;    % position of contact point of foot/leg in world [m]
+    uLINK(1).joint(1).foot.v = uLINK(1).joint(1).v+ cross( uLINK(1).joint(1).w+uLINK(1).w,uLINK(1).R*uLINK(1).joint(1).leg)  + uLINK(1).R*uLINK(1).joint(1).dleg;
+    
+    [fc,fdis,ftot, tcontact, taudis, tautot] = contactForce(1,1,Dtime);                           %  simulate contact forces
+    [acc_linear,acc_angular]   = NewtonEuler(1,ftot,tautot,Dtime);                  % calculate linear, angular acceleration based on all contact force and torque    
+    
+    % put control code here, sense the filtered information to simulate
+    % time dealy and the control effort will be applied in next loop.
+    SensorFeedback(Dtime,fc);
+    RTcontrol(fc,Dtime,time(n));
+    
+    if uLINK(1).pcom(3)<uLINK(1).joint(1).foot.p(3)
+        display('face down ground'); beep; break;
+    end  
+%     if uLINK(1).joint(1).foot.p(3)<0
+%         display('face down ground'); beep; break;
+%     end     
+    logData;
+    show_animation;    
+%     time=time+Dtime;
+end
+%%
+% return;
+%%
+plotData;

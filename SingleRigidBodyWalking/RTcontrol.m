@@ -1,0 +1,104 @@
+function RTcontrol(fc, dt,time)
+
+% Jumping(fc, dt,time);
+AdmittanceLeg(fc, dt);
+
+Hiptorque(time,fc,dt);
+% if norm(uLINK(1).joint(1).leg)>uLINK(1).joint(1).r  % leg is max length,
+% then NO control effort shall extend leg 
+% elseif fz>0
+%     Kp=0.03;
+%     uLINK(1).joint(1).dleg(3)=Kp*fz/(uLINK(1).m*G);
+% end
+% uLINK(1).joint(1).leg(3) = uLINK(1).joint(1).leg(3) + uLINK(1).joint(1).dleg(3)*dt;
+
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function Jumping(fc, dt,time)
+global uLINK 
+fz=fc(3);
+T=1.0;
+if time<0.5*T
+%     uLINK(1).joint(1).r=uLINK(1).joint(1).r - 0.01*(1-cos(2*pi/T*time));
+    uLINK(1).joint(1).dleg(3) = 1.5*sin(2*pi/T*time);
+    uLINK(1).joint(1).leg(3) = uLINK(1).joint(1).leg(3) + uLINK(1).joint(1).dleg(3)*dt;
+elseif time>=0.5*T && time<=T
+    uLINK(1).joint(1).dleg(3) = 5*sin(2*pi/T*time);
+    uLINK(1).joint(1).leg(3) = uLINK(1).joint(1).leg(3) + uLINK(1).joint(1).dleg(3)*dt;    
+else
+    uLINK(1).joint(1).dleg(3) =0;
+    uLINK(1).joint(1).leg(3) = uLINK(1).joint(1).leg(3) + uLINK(1).joint(1).dleg(3)*dt;
+end
+
+if norm(uLINK(1).joint(1).leg)>uLINK(1).joint(1).r
+    uLINK(1).joint(1).leg = uLINK(1).joint(1).leg*uLINK(1).joint(1).r /norm(uLINK(1).joint(1).leg);
+end
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+function AdmittanceLeg(FT, dt)
+global uLINK G
+global leg_ref leg_ref_old leg_out
+global fg
+Kd=1000; 
+% Bd=1;
+damping=.5;
+Bd=2*damping*sqrt(Kd*uLINK(1).m);
+
+% force=abs(dot(x_old/norm(x_old),fc));
+force=dot(-(uLINK(1).R*uLINK(1).joint(1).leg/norm(uLINK(1).R*uLINK(1).joint(1).leg)),FT);
+
+if force>5
+    fg=(0.5*fg+dt*uLINK(1).m*G)/(0.5+dt);
+else
+    fg=(0.5*fg+dt*0)/(0.5+dt);
+end
+
+leg_ref= dt/(Kd*dt+Bd)*( Kd*uLINK(1).joint(1).r0-force + fg)+Bd/(Kd*dt+Bd)*norm(leg_ref_old);
+
+if leg_ref>uLINK(1).joint(1).r0
+    leg_ref =uLINK(1).joint(1).r0;
+elseif leg_ref<0.1*uLINK(1).joint(1).r0
+    leg_ref= 0.1*uLINK(1).joint(1).r0 ;   
+end
+leg_ref_old=leg_ref;
+
+% simulate phase delay from a position controlled system
+Ffilter=50.0;
+Tfilter=1/Ffilter;
+uLINK(1).joint(1).r_old=uLINK(1).joint(1).r;
+uLINK(1).joint(1).r =(Tfilter*leg_out+dt*leg_ref)/(Tfilter+dt);
+uLINK(1).joint(1).dr = (uLINK(1).joint(1).r -uLINK(1).joint(1).r_old)/dt;
+% uLINK(1).joint(1).leg =
+% uLINK(1).joint(1).leg/norm(uLINK(1).joint(1).leg)*leg_out;
+% leg_old=uLINK(1).joint(1).r;
+% uLINK(1).joint(1).leg=uLINK(1).joint(1).R*[0 0 -uLINK(1).joint(1).r]';    
+% uLINK(1).joint(1).dleg =( uLINK(1).joint(1).leg - leg_old )/dt; 
+    
+% 
+% if norm(uLINK(1).joint(1).leg)>uLINK(1).joint(1).r
+%     uLINK(1).joint(1).leg = uLINK(1).joint(1).leg*uLINK(1).joint(1).r /norm(uLINK(1).joint(1).leg);
+% elseif norm(uLINK(1).joint(1).leg)<0.2*uLINK(1).joint(1).r
+%     uLINK(1).joint(1).leg = uLINK(1).joint(1).leg*0.2*uLINK(1).joint(1).r /norm(uLINK(1).joint(1).leg);   
+% end
+
+%%
+function Hiptorque(time,fc,dt)
+global uLINK G
+% delay=0.5;
+% if time>delay
+% uLINK(1).joint(1).w(2)=1*sin(2*pi*(time-delay)+pi/2);
+% end
+Kp(2) =120.0;
+Kv(2) =80.0;
+bodypitch(2) = asin(-uLINK(1).R(3,1));
+
+Ffilter=50.0;
+Tfilter=1/Ffilter;
+if norm(fc)>0.5*uLINK.m*G
+    u=Kp(2)*bodypitch(2) + Kv(2) *uLINK(1).w(2);
+    uLINK(1).joint(1).w(2)  =(Tfilter*uLINK(1).joint(1).w(2) +dt*u)/(Tfilter+dt);
+else
+    uLINK(1).joint(1).w(2)  =(Tfilter*uLINK(1).joint(1).w(2) )/(Tfilter+dt);
+end
+ 
+

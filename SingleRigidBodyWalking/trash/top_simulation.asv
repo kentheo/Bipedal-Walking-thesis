@@ -1,0 +1,71 @@
+% simulation of single rigid body dynamics, modified from top_simulation.m
+% Programmed by: Zhibin LI 
+% Department of Advanced Robotics
+% Italian Institute of Technology
+clear all
+close all
+clc;
+
+global uLINK G us uc
+us=0.8;
+uc=0.6;
+G = 9.8;
+
+r = 0.02; a = 0.6; c = 0.8;           %  radius, height/thicknes, c is center of mass position with respect to contact point [m]
+MakeTop(1, r,a,c);
+
+%% Initial conditions
+uLINK(1).vcom = [1 0 0]';                   % velocity of COM in world [m/s]
+vx_des=uLINK(1).vcom(1);
+v_des=0;
+uLINK(1).R = Rodrigues([0 1 0],deg2rad(0));   % orientation of rigid body
+uLINK(1).w_local = [0 (vx_des-v_des)/norm(uLINK(1).c) 0]';  % angular velocity of the rigid body in local frame
+uLINK(1).w = uLINK(1).R*uLINK(1).w_local;                  % initial angular velocity of the rigid body in world frame [rad/s]
+uLINK(1).p = [0 0 -0.001]';                 % position of contact point [m]
+uLINK(1).com=uLINK(1).p+uLINK(1).R*uLINK(1).c ;  % position of COM in world [m]
+uLINK(1).vo= uLINK.vcom-cross(uLINK(1).w,uLINK(1).com);  % spatial velocity
+% uLINK(1).v = uLINK(1).vo + cross(uLINK(1).w,uLINK(1).p);   % velocity of contact point
+% uLINK(1).vcom = uLINK(1).vo + cross(uLINK(1).w,uLINK(1).com);   % velocity of contact point
+
+%% simulation 
+Dtime   = 0.0001;
+EndTime = 1.5;
+time  = 0:Dtime:EndTime;
+time_skip = 0.005;
+figure
+set(gcf,'Position',[50,50,1200,600]);%[left bottom width height]
+AX=[-0.4 1.5];  AY=[-.1 .5]; AZ=[-.05 1.0];  % 3D plot dimension
+
+%% store simulated data
+store_grf=[];
+store_p=[];
+store_v=[];
+store_pcom=[];
+store_vcom=[];
+
+for n = 1:length(time)
+    uLINK(1).com = uLINK(1).R * uLINK(1).c + uLINK(1).p; 
+    [f,fc,tau] = TopForce(1);                           %  simulate contact forces
+    [P,L]   = SE3dynamics(1,f,tau);                  % calculated P L based on all contact forces
+    uLINK(1).v = uLINK(1).vo + cross(uLINK(1).w,uLINK(1).p);     
+    uLINK(1).vcom = uLINK(1).vo + cross(uLINK(1).w,uLINK(1).com);   % velocity of COM
+    store_grf(n,1:3)=fc';
+    store_p(n,1:3)=uLINK(1).p';
+    store_v(n,1:3)=uLINK(1).v';
+    store_vcom(n,1:3)=uLINK(1).vcom';
+    store_pcom(n,1:3)=uLINK(1).com';     
+    [uLINK(1).p, uLINK(1).R] = SE3exp(1, Dtime);              % update the position and orientation
+    uLINK(1).w = uLINK(1).w + Dtime * uLINK(1).dw;      % numerical integration of angular velocity
+    uLINK(1).vo= uLINK(1).vo+ Dtime * uLINK(1).dvo;    % numerical integration of spatial velocity
+
+    if uLINK(1).com(3)<0
+        display('face down ground'); beep; break;
+    end
+    %  show animation
+    show_animation;
+end
+
+%%
+% return;
+%%
+plotData;
